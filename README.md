@@ -18,3 +18,11 @@ A character display clock project focused on embedded systems design, developmen
 * **Display Library:** TFT_eSPI
 * **IDE/Tools:** PlatformIO, Arduino IDE
 * **Skills:** Memory Management, Image Optimization, Embedded Software Engineering
+## 🎯 Future Goals
+
+My ultimate goal is to become a professional **Embedded Systems Engineer**. 
+
+To achieve this, I am actively working on:
+* **Deepening My OS Knowledge:** Gaining a comprehensive understanding of RTOS (Real-Time Operating Systems) architectures like **FreeRTOS** to optimize multi-tasking workflows.
+* **Mastering Hardware-Software Co-design:** Expanding my skills in both microcontrollers (such as RP2040) and efficient memory/resource management for hardware-constrained systems.
+* **Building Production-Ready Projects:** Creating more complex and practical embedded applications to solve real-world technical challenges.
