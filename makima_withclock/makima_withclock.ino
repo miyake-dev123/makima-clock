@@ -23,7 +23,8 @@ extern const uint8_t u8g2_font_myfont[] U8G2_FONT_SECTION("u8g2_font_myfont");
 // 1 = PCシリアルモニタへの日英ログ出力を有効化
 // 0 = 完成モード（すべてのログ処理を消去し、スタンドアロンで動かす状態）
 // =========================================================================
-#define DEBUG 1
+//#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG
   #define DEBUG_INIT()     Serial.begin(115200)
