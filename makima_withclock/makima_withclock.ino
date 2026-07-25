@@ -49,8 +49,8 @@ extern const uint8_t u8g2_font_myfont[] U8G2_FONT_SECTION("u8g2_font_myfont");
 #define TFT_SCLK  18
 #define TFT_MOSI  19
 
-#define I2C0_SDA   5
-#define I2C0_SCL   4
+#define I2C0_SDA   4
+#define I2C0_SCL   5
 #define I2C1_SDA   6
 #define I2C1_SCL   7
 
