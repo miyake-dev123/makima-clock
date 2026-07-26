@@ -587,11 +587,15 @@ void updateClockDisplay(DateTime t) {
   if (firstRun || t.minute() != last_t.minute()) {
     sprintf(buf, "%02d", t.minute());
     drawTextWithBackground(COL_MIN, ROW_TIME, buf, currentBgFile);
+  }
 
-    // 1分ごとにPCシリアルモニタへ状態を一括送信
-    if (bmpOk) {
-      DEBUG_PRINTF("[STATUS REPORT] %02d:%02d | Temp: %.1fC | Pres: %.1fhPa / [状態報告] %02d:%02d | 温度: %.1fC | 気圧: %.1fhPa\n",
-                   t.hour(), t.minute(), lastTemp, lastPres, t.hour(), t.minute(), lastTemp, lastPres);
+    // 1分ごとにPCシリアルモニタへ状態を一括送信(背景切替によるfirstRunでは送らない)
+    static int lastReportedMinute = -1;
+    if (t.minute() != lastReportedMinute) {
+      lastReportedMinute = t.minute();
+      if (bmpOk) {
+        DEBUG_PRINTF("[STATUS REPORT] %02d:%02d | Temp: %.1fC | Pres: %.1fhPa / [状態報告] %02d:%02d | 温度: %.1fC | 気圧: %.1fhPa\n",
+                     t.hour(), t.minute(), lastTemp, lastPres, t.hour(), t.minute(), lastTemp, lastPres);
     } else {
       DEBUG_PRINTF("[STATUS REPORT] %02d:%02d | Env sensor N/A / [状態報告] %02d:%02d | 環境センサー未接続\n",
                    t.hour(), t.minute(), t.hour(), t.minute());
