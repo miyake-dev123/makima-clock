@@ -62,14 +62,14 @@ Markdown
 
 #### ① TFT液晶ディスプレイ (ST7789 SPI0)
 * GPIO 15 ── TFT_RST (Reset) 
-* GPIO 16 ── TFT_DC (Data/Command)
+* GPIO 14 ── TFT_DC (Data/Command)
 * GPIO 17 ── TFT_CS (Chip Select)
 * GPIO 18 ── TFT_SCLK (SPI0_SCK)
 * GPIO 19 ── TFT_MOSI (SPI0_TX)
 
 #### ② リアルタイムクロック (DS3231 [I2C0])
-* GPIO 4  ── I2C0_SCL (Serial Clock) ※要外部プルアップ抵抗
-* GPIO 5  ── I2C0_SDA (Serial Data)  ※要外部プルアップ抵抗
+* GPIO 4  ── I2C0_SCL (Serial Clock)
+* GPIO 5  ── I2C0_SDA (Serial Data)
 
 #### ③ 環境センサー (BMP280 [I2C1])
 * GPIO 6  ── I2C1_SDA (Serial Data)
@@ -90,7 +90,7 @@ Markdown
                     
     【左側接続デバイス】          +---------------+          【右側接続デバイス】
                  (不明)  [--| (不明)    (15) |--]  15  ---> [TFT_RST] 液晶
-         [TFT_DC] <--- 16  [--| 16         14 |--]  14
+                  <--- 16  [--| 16         14 |--]  14---> [TFT_DC]
          [TFT_CS] <--- 17  [--| 17         13 |--]  13
        [TFT_SCLK] <--- 18  [--| 18         12 |--]  12
        [TFT_MOSI] <--- 19  [--| 19         11 |--]  11
