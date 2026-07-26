@@ -63,7 +63,7 @@ This section details the hardware connections between the RP2040 mini-board and 
 
 #### (1) TFT Display (ST7789 SPI0)
 * GPIO 15 ── TFT_RST (Reset)
-* GPIO 16 ── TFT_DC (Data/Command)
+* GPIO 14 ── TFT_DC (Data/Command)
 * GPIO 17 ── TFT_CS (Chip Select)
 * GPIO 18 ── TFT_SCLK (SPI0_SCK)
 * GPIO 19 ── TFT_MOSI (SPI0_TX)
@@ -91,7 +91,7 @@ This section details the hardware connections between the RP2040 mini-board and 
                     
     [Left-Side Devices]         +---------------+         [Right-Side Devices]
                   (NC)  [--| (NC)      (15) |--]  15  ---> [TFT_RST] Display
-         [TFT_DC]  <--- 16  [--| 16         14 |--]  14
+                   <--- 16  [--| 16         14 |--]  14--> [TFT_DC]
          [TFT_CS]  <--- 17  [--| 17         13 |--]  13
         [TFT_SCLK] <--- 18  [--| 18         12 |--]  12
         [TFT_MOSI] <--- 19  [--| 19         11 |--]  11
@@ -140,5 +140,60 @@ Entering the Mode: Press and hold the Adjust Button for over 3 seconds.
 Selecting a Unit: Press the Select Button to cycle through adjustable fields: "Year ──> Month ──> Day ──> Hour ──> Minute ──> Second".
 
 Modifying the Value: Press the Count Up Button to increment the value of the active field.
+
+Wiring List (Pico GPIO ⇔ Peripherals)
+
+Always refer back to this section whenever you're unsure about the wiring, to ensure reproducibility.
+
+I2C0 — RTC (DS3231)
+Pico GPIO	Signal	Connected To
+GP4	SDA	DS3231 SDA
+GP5	SCL	DS3231 SCL
+
+Confirmed 2026/07/26. Verified that the measured wiring matches the Wire.setSDA/setSCL configuration in the code.
+
+Note: The AT24C32 EEPROM on the DS3231 module (unused in this project) responded at 0x50 in actual measurement.
+The datasheet default of 0x57 only applies when the A0/A1/A2 pins are all pulled up to VCC — on some boards these pins are wired to GND instead, so the actual address depends on the specific board. Always verify with an I2C scanner before use.
+
+I2C1 — Environmental Sensor (BMP280)
+Pico GPIO	Signal	Connected To
+GP6	SDA	BMP280 SDA
+GP7	SCL	BMP280 SCL
+
+The BMP280 address (0x76 or 0x77) is auto-detected (bmp.begin(0x76) / bmp.begin(0x77)).
+
+SPI0 — TFT Display (ST7789, 320x240)
+Pico GPIO	Signal	Connected To
+GP15	RST	TFT RESET
+GP14	DC (data/command)	TFT DC
+GP17	CS	TFT CS
+GP18	SCLK (SCK)	TFT SCK
+GP19	MOSI (TX)	TFT MOSI
+
+Note (Resolved): RP2040's SPI0 automatically claims MISO=GP16 by default.
+The DC pin was originally assigned to GP16, which caused SPI0 initialization to hijack it for the MISO function, resulting in the TFT displaying nothing (the backlight lit up, but commands weren't getting through).
+A software workaround to redirect MISO elsewhere was considered, but the issue was ultimately resolved by changing the DC pin to GP14.
+Since GP14 doesn't conflict with I2C, SPI, or the buttons, simply rewiring the DC connection to GP14 is sufficient.
+
+Tactile Switches
+Pico GPIO	Role
+GP20	SELECT (cycle through edit fields)
+GP21	UP (increment value)
+GP22	ADJUST (long press to enter time-adjust mode, short press to cycle display mode)
+Power & Other Notes
+LittleFS manages background images (/makima.bin, /chanesouman.bin) and holiday data (/holidays.bin).
+The watchdog timer is set to 5000ms and is enabled only after all initialization in setup() completes (to prevent false resets during initialization).
+If the BMP280 isn't detected, the bmpOk flag allows the system to continue running non-fatally without it.
+Verified Status
+As of 2026/07/26, the RTC (DS3231), BMP280, and TFT display have all been confirmed working correctly with the wiring and code above.
+The I2C scanner (separate file) confirmed ACK responses from both the RTC and BMP280 addresses, and re-scanning via the tactile switches also works.
+Known TODOs / Items Under Investigation
+The automatic background-switching logic inside handleButtons() (the timer that runs when displayMode == 0 || displayMode == 1) can sometimes overwrite the display mode selected via the button. Needs fixing.
+Occasional unexpected resets occur; a watchdog timeout or power issue (brownout) is suspected. Needs further investigation.
+Changelog (excerpt)
+Fixed I2C0/I2C1 pin configuration, added timeout handling, RTC retry logic, non-fatal BMP280 handling, and corrected watchdog enable timing.
+Changed the TFT_DC pin from GP16 to GP14 to resolve the conflict with SPI0's MISO pin (fixed the blank-display issue).
+Changed the environmental sensor status report output from depending on firstRun to an independent per-minute check (lastReportedMinute), so it's no longer tied to the timing of background switches.
+
 
 Saving and Exiting: Press and hold the Adjust Button for over 3 seconds to write to the external RTC hardware.
