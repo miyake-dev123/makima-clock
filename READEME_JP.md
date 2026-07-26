@@ -152,7 +152,7 @@ struct DateTime {
 
 
 
-## 配線一覧 (Pico GPIO ⇔ 周辺機器)
+### 配線一覧 (Pico GPIO ⇔ 周辺機器)
 
 再現性のため、配線に迷ったら必ずここを見る。
 
