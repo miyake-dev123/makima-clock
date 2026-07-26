@@ -15,65 +15,70 @@
 #include <Adafruit_BMP280.h>
 
 // 自作の日本語フォントデータを読み込み
-#include "my_u8g2_font.h" 
+#include "my_u8g2_font.h"
 extern const uint8_t u8g2_font_myfont[] U8G2_FONT_SECTION("u8g2_font_myfont");
 
 // =========================================================================
-// [デバッグ設定] 
+// [デバッグ設定]
 // 1 = PCシリアルモニタへの日英ログ出力を有効化
 // 0 = 完成モード（すべてのログ処理を消去し、スタンドアロンで動かす状態）
 // =========================================================================
-//#define DEBUG 1
-#define DEBUG 0
+#define DEBUG 1
 
 #if DEBUG
   #define DEBUG_INIT()     Serial.begin(115200)
   #define DEBUG_PRINTLN(x) Serial.println(x)
   #define DEBUG_PRINTF(...) Serial.printf(__VA_ARGS__)
 #else
-  #define DEBUG_INIT()     
-  #define DEBUG_PRINTLN(x) 
-  #define DEBUG_PRINTF(...) 
+  #define DEBUG_INIT()
+  #define DEBUG_PRINTLN(x)
+  #define DEBUG_PRINTF(...)
 #endif
 
 // =========================================================================
 // ピン配置・定数定義
 // =========================================================================
-#define COLOR_NEON_BLUE      0x07FF  
-#define COLOR_BLOODY_ORANGE  0xF200  
-#define COLOR_HOLIDAY_RED    0xF800  
+#define COLOR_NEON_BLUE      0x07FF
+#define COLOR_BLOODY_ORANGE  0xF200
+#define COLOR_HOLIDAY_RED    0xF800
 
 #define TFT_RST   15
-#define TFT_DC    16
+#define TFT_DC    14
 #define TFT_CS    17
 #define TFT_SCLK  18
 #define TFT_MOSI  19
 
+// I2C0: RTC用 (確定済み: SDA=GP4, SCL=GP5)
 #define I2C0_SDA   4
 #define I2C0_SCL   5
+// I2C1: BMP280用
 #define I2C1_SDA   6
 #define I2C1_SCL   7
 
-#define PIN_BTN_ADJUST 22 
-#define PIN_BTN_SELECT 20 
-#define PIN_BTN_UP     21 
+#define PIN_BTN_ADJUST 22
+#define PIN_BTN_SELECT 20
+#define PIN_BTN_UP     21
 
-#define WDT_REFRESH_TIME 50 
-#define DispMAKIMA   13000 
-#define ChainsoMan   3000  
+#define WDT_TIMEOUT_MS   5000  // watchdog タイムアウト (5秒)
+#define WDT_REFRESH_TIME 50
+#define I2C_TIMEOUT_MS   50    // I2C通信のタイムアウト
+#define RTC_RETRY_COUNT  3     // RTC初期化リトライ回数
+
+#define DispMAKIMA   13000
+#define ChainsoMan   3000
 
 const int screenWidth = 320;
 const int screenHeight = 240;
 
-#define ROW_DATE     40   
-#define ROW_DAY      85   
-#define ROW_TIME     230  
-#define COL_AMPM     5    
-#define COL_HOUR     70   
-#define COL_SEP1     132  
-#define COL_MIN      165  
-#define COL_SEP2     225  
-#define COL_SEC      257  
+#define ROW_DATE     40
+#define ROW_DAY      85
+#define ROW_TIME     230
+#define COL_AMPM     5
+#define COL_HOUR     70
+#define COL_SEP1     132
+#define COL_MIN      165
+#define COL_SEP2     225
+#define COL_SEC      257
 
 #define SemiCollonY_offset -5
 #define DateX_offset       -55
@@ -81,39 +86,40 @@ const int screenHeight = 240;
 #define FontWidthOffset    22
 
 struct HolidayData {
-  uint16_t year;       
-  uint8_t month;       
-  uint8_t day;         
-  uint16_t disp_color; 
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint16_t disp_color;
 };
 
 // =========================================================================
 // インスタンスとグローバル変数
 // =========================================================================
-Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST); 
-U8G2_FOR_ADAFRUIT_GFX u8g2_gfx;                                 
-RTC_DS3231 rtc;                                                 
-Adafruit_BMP280 bmp(&Wire1);                                    
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+U8G2_FOR_ADAFRUIT_GFX u8g2_gfx;
+RTC_DS3231 rtc;
+Adafruit_BMP280 bmp(&Wire1);
 
-uint16_t lineBuffer[screenWidth]; 
-const char* currentBgFile = "/makima.bin"; 
+uint16_t lineBuffer[screenWidth];
+const char* currentBgFile = "/makima.bin";
 
-uint8_t displayMode = 0;      
-bool isEditMode = false;      
-uint8_t editTarget = 0;       
-DateTime editDateTime;        
+uint8_t displayMode = 0;
+bool isEditMode = false;
+uint8_t editTarget = 0;
+DateTime editDateTime;
 
-DateTime last_t;              
-bool firstRun = true;         
-unsigned long lastSwitch = 0; 
-bool isMakimaBg = true;       
-uint16_t currentTextColor = COLOR_NEON_BLUE; 
+DateTime last_t;
+bool firstRun = true;
+unsigned long lastSwitch = 0;
+bool isMakimaBg = true;
+uint16_t currentTextColor = COLOR_NEON_BLUE;
 
-float lastTemp = -999.0;      
-float lastPres = -999.0;      
+bool bmpOk = false;        // BMP280が使えるかどうかの非致命フラグ
+float lastTemp = -999.0;
+float lastPres = -999.0;
 
-unsigned long adjustPressStartTime = 0; 
-bool adjustPressed = false;              
+unsigned long adjustPressStartTime = 0;
+bool adjustPressed = false;
 
 void displayBinaryImage(const char* filename);
 void drawTextWithBackground(int16_t x, int16_t y, const char* text, const char* bgFile);
@@ -122,121 +128,154 @@ void handleButtons();
 void handleSerialDebug();
 void updateClockDisplay(DateTime t);
 void drawEditScreen();
-void createDefaultHolidaysFile(); 
+void createDefaultHolidaysFile();
+uint8_t daysInMonth(uint16_t year, uint8_t month);
+void fatalError(const char* msg);
+
+// =========================================================================
+// 致命的エラー処理
+// LittleFSやRTCなど、続行不可能な初期化失敗時にここへ集約する。
+// watchdogが有効なので、一定時間ログを出したのち自動的にリセットがかかる。
+// =========================================================================
+void fatalError(const char* msg) {
+  DEBUG_PRINTF("[FATAL] %s / 致命的エラー: %s\n", msg, msg);
+  DEBUG_PRINTLN("[FATAL] Waiting for watchdog reset... / ウォッチドッグによる再起動を待機中...");
+  while (1) {
+    // watchdog_update()を呼ばないことで、WDT_TIMEOUT_MS後に確実にリセットさせる
+    delay(10);
+  }
+}
 
 // =========================================================================
 // 初期化 (Setup)
 // =========================================================================
 void setup() {
-  DEBUG_INIT(); 
-  
+  DEBUG_INIT();
+
   #if DEBUG
   unsigned long startWait = millis();
-  while (!Serial && (millis() - startWait < 2000)) { watchdog_update(); }
+  while (!Serial && (millis() - startWait < 2000)) { /* シリアル接続待ち */ }
   #endif
 
   DEBUG_PRINTLN("\n====================================");
   DEBUG_PRINTLN("=== SYSTEM STARTUP / システム起動 ===");
   DEBUG_PRINTLN("====================================");
 
-  //watchdog_enable(5000, 1);  ← ★一時的にコメントアウト
-  //DEBUG_PRINTLN("[OK] Watchdog timer enabled (5000ms) / ウォッチドッグタイマ有効化 (5000ms)");
-
   pinMode(PIN_BTN_ADJUST, INPUT_PULLUP);
   pinMode(PIN_BTN_SELECT, INPUT_PULLUP);
   pinMode(PIN_BTN_UP,     INPUT_PULLUP);
 
   if (!LittleFS.begin()) {
-    DEBUG_PRINTLN("[ERROR] LittleFS Mount Failed. / LittleFSのマウントに失敗しました。");
-    while (1) watchdog_update(); 
+    fatalError("LittleFS Mount Failed / LittleFSのマウントに失敗しました。");
   }
   DEBUG_PRINTLN("[OK] LittleFS mounted successfully / LittleFS マウント完了");
 
   createDefaultHolidaysFile();
 
+  // --- I2C0 (RTC用) 初期化 ---
   Wire.setSDA(I2C0_SDA);
   Wire.setSCL(I2C0_SCL);
+  Wire.setTimeout(I2C_TIMEOUT_MS);   // バスストール対策
   Wire.begin();
 
+  // --- I2C1 (BMP280用) 初期化 ---
   Wire1.setSDA(I2C1_SDA);
   Wire1.setSCL(I2C1_SCL);
+  Wire1.setTimeout(I2C_TIMEOUT_MS);  // バスストール対策
   Wire1.begin();
 
-  if (!rtc.begin()) {
-    DEBUG_PRINTLN("[ERROR] RTC not found. / RTCチップが見つかりません。");
-    while (1) watchdog_update();
+  // --- RTC初期化 (リトライ付き) ---
+  bool rtcOk = false;
+  for (int i = 1; i <= RTC_RETRY_COUNT; i++) {
+    if (rtc.begin()) {
+      rtcOk = true;
+      break;
+    }
+    DEBUG_PRINTF("[WARN] RTC init attempt %d/%d failed / RTC初期化 試行%d/%d 失敗\n", i, RTC_RETRY_COUNT, i, RTC_RETRY_COUNT);
+    delay(200);
+  }
+  if (!rtcOk) {
+    fatalError("RTC not found after retries / リトライ後もRTCチップが見つかりません。");
   }
   DEBUG_PRINTLN("[OK] RTC module initialized / RTCモジュール初期化完了");
-  
+
   if (rtc.lostPower()) {
     DEBUG_PRINTLN("[WARN] RTC lost power! Resetting to 2026/01/01. / RTCの電源が喪失していました。2026/01/01に初期化します。");
     rtc.adjust(DateTime(2026, 1, 1, 0, 0, 0));
   }
 
+  // --- BMP280初期化 (非致命: 無くても時計機能は継続) ---
   if (!bmp.begin(0x76) && !bmp.begin(0x77)) {
-    DEBUG_PRINTLN("[WARN] BMP280 sensor not found. / BMP280センサーが検出されませんでした。");
+    DEBUG_PRINTLN("[WARN] BMP280 sensor not found. Continuing without env sensor. / BMP280センサーが検出されませんでした。環境センサー無しで続行します。");
+    bmpOk = false;
   } else {
     DEBUG_PRINTLN("[OK] BMP280 sensor initialized / BMP280センサー初期化完了");
+    bmpOk = true;
   }
 
-  tft.init(screenHeight, screenWidth); 
-  tft.setRotation(1); 
-  
+  tft.init(screenHeight, screenWidth);
+  tft.setRotation(1);
+
   u8g2_gfx.begin(tft);
   u8g2_gfx.setFont(u8g2_font_myfont);
-  u8g2_gfx.setFontMode(1); 
+  u8g2_gfx.setFontMode(1);
   u8g2_gfx.setForegroundColor(COLOR_NEON_BLUE);
 
   displayBinaryImage("/makima.bin");
-  last_t = rtc.now(); 
-  currentTextColor = checkHolidayColor(last_t); 
+  last_t = rtc.now();
+  currentTextColor = checkHolidayColor(last_t);
 
-  DEBUG_PRINTF("[OK] Setup completed. Current Time: %04d/%02d/%02d %02d:%02d:%02d / 初期化完了。現在時刻: %04d/%02d/%02d %02d:%02d:%02d\n", 
+  DEBUG_PRINTF("[OK] Setup completed. Current Time: %04d/%02d/%02d %02d:%02d:%02d / 初期化完了。現在時刻: %04d/%02d/%02d %02d:%02d:%02d\n",
                last_t.year(), last_t.month(), last_t.day(), last_t.hour(), last_t.minute(), last_t.second(),
                last_t.year(), last_t.month(), last_t.day(), last_t.hour(), last_t.minute(), last_t.second());
 
-  watchdog_update(); 
+  // --- Watchdogは全初期化が終わった後に有効化 ---
+  // (LittleFS/RTC/BMP280/TFTの各初期化処理はミリ秒〜数百ミリ秒かかりうるため、
+  //  初期化中に有効化するとタイムアウトで誤リセットする恐れがある)
+  watchdog_enable(WDT_TIMEOUT_MS, 1);
+  DEBUG_PRINTF("[OK] Watchdog timer enabled (%dms) / ウォッチドッグタイマ有効化 (%dms)\n", WDT_TIMEOUT_MS, WDT_TIMEOUT_MS);
+  watchdog_update();
 }
 
 // =========================================================================
 // メインループ (Loop)
 // =========================================================================
 void loop() {
-  watchdog_update(); 
+  watchdog_update();
 
-  handleButtons();     
-  handleSerialDebug(); 
+  handleButtons();
+  handleSerialDebug();
 
   if (isEditMode) {
-    drawEditScreen();  
+    drawEditScreen();
   } else {
-    DateTime t = rtc.now(); 
+    DateTime t = rtc.now();
 
     if (displayMode == 0 || displayMode == 1) {
       unsigned long elapsed = millis() - lastSwitch;
       unsigned long targetInterval = (isMakimaBg ? DispMAKIMA : ChainsoMan);
-      
+
       if (elapsed > targetInterval) {
-        isMakimaBg = !isMakimaBg; 
+        isMakimaBg = !isMakimaBg;
         displayMode = isMakimaBg ? 0 : 1;
-        
-        DEBUG_PRINTF("[INFO] Switching background: %s / 背景切り替え: %s\n", 
+
+        DEBUG_PRINTF("[INFO] Switching background: %s / 背景切り替え: %s\n",
                      isMakimaBg ? "/makima.bin" : "/chanesouman.bin", isMakimaBg ? "/makima.bin" : "/chanesouman.bin");
-                     
-        displayBinaryImage(isMakimaBg ? "/makima.bin" : "/chanesouman.bin"); 
-        
-        currentTextColor = checkHolidayColor(t); 
-        lastSwitch = millis(); 
-        firstRun = true;       
+
+        displayBinaryImage(isMakimaBg ? "/makima.bin" : "/chanesouman.bin");
+
+        currentTextColor = checkHolidayColor(t);
+        lastSwitch = millis();
+        firstRun = true;
       }
     }
 
-    updateClockDisplay(t); 
-    last_t = t;            
-    firstRun = false;      
+    updateClockDisplay(t);
+    last_t = t;
+    firstRun = false;
   }
 
-  delay(WDT_REFRESH_TIME); 
+  delay(WDT_REFRESH_TIME);
 }
 
 // =========================================================================
@@ -256,32 +295,32 @@ void createDefaultHolidaysFile() {
   }
 
   HolidayData defaults[] = {
-    {0, 1, 26, COLOR_BLOODY_ORANGE}, 
-    {0, 4, 20, COLOR_NEON_BLUE},     
-    {0, 7, 3,  COLOR_BLOODY_ORANGE}, 
-    {0, 1, 1,   COLOR_HOLIDAY_RED}, 
-    {0, 2, 11,  COLOR_HOLIDAY_RED}, 
-    {0, 2, 23,  COLOR_HOLIDAY_RED}, 
-    {0, 4, 29,  COLOR_HOLIDAY_RED}, 
-    {0, 5, 3,   COLOR_HOLIDAY_RED}, 
-    {0, 5, 4,   COLOR_HOLIDAY_RED}, 
-    {0, 5, 5,   COLOR_HOLIDAY_RED}, 
-    {0, 8, 11,  COLOR_HOLIDAY_RED}, 
-    {0, 11, 3,  COLOR_HOLIDAY_RED}, 
-    {0, 11, 23, COLOR_HOLIDAY_RED}, 
-    {2026, 1, 12, COLOR_HOLIDAY_RED}, 
-    {2026, 3, 20, COLOR_HOLIDAY_RED}, 
-    {2026, 7, 20, COLOR_HOLIDAY_RED}, 
-    {2026, 9, 21, COLOR_HOLIDAY_RED}, 
-    {2026, 9, 23, COLOR_HOLIDAY_RED}, 
-    {2026, 10, 12, COLOR_HOLIDAY_RED} 
+    {0, 1, 26, COLOR_BLOODY_ORANGE},
+    {0, 4, 20, COLOR_NEON_BLUE},
+    {0, 7, 3,  COLOR_BLOODY_ORANGE},
+    {0, 1, 1,   COLOR_HOLIDAY_RED},
+    {0, 2, 11,  COLOR_HOLIDAY_RED},
+    {0, 2, 23,  COLOR_HOLIDAY_RED},
+    {0, 4, 29,  COLOR_HOLIDAY_RED},
+    {0, 5, 3,   COLOR_HOLIDAY_RED},
+    {0, 5, 4,   COLOR_HOLIDAY_RED},
+    {0, 5, 5,   COLOR_HOLIDAY_RED},
+    {0, 8, 11,  COLOR_HOLIDAY_RED},
+    {0, 11, 3,  COLOR_HOLIDAY_RED},
+    {0, 11, 23, COLOR_HOLIDAY_RED},
+    {2026, 1, 12, COLOR_HOLIDAY_RED},
+    {2026, 3, 20, COLOR_HOLIDAY_RED},
+    {2026, 7, 20, COLOR_HOLIDAY_RED},
+    {2026, 9, 21, COLOR_HOLIDAY_RED},
+    {2026, 9, 23, COLOR_HOLIDAY_RED},
+    {2026, 10, 12, COLOR_HOLIDAY_RED}
   };
 
   size_t count = sizeof(defaults) / sizeof(HolidayData);
   for (size_t i = 0; i < count; i++) {
     file.write((uint8_t*)&defaults[i], sizeof(HolidayData));
   }
-  file.close(); 
+  file.close();
   DEBUG_PRINTF("[OK] Saved %d records / %d 件の祝日データを LittleFS に保存しました。\n", count, count);
 }
 
@@ -301,13 +340,26 @@ uint16_t checkHolidayColor(DateTime dt) {
     if ((holiday.year == 0 || holiday.year == dt.year()) &&
         holiday.month == dt.month() &&
         holiday.day == dt.day()) {
-      matchedColor = holiday.disp_color; 
+      matchedColor = holiday.disp_color;
       DEBUG_PRINTF("[MATCH] Special date detected: 0x%04X / 記念日・祝日を検知: 0x%04X\n", matchedColor, matchedColor);
-      break; 
+      break;
     }
   }
   file.close();
-  return matchedColor; 
+  return matchedColor;
+}
+
+// =========================================================================
+// 月ごとの日数を返す (うるう年対応)
+// =========================================================================
+uint8_t daysInMonth(uint16_t year, uint8_t month) {
+  static const uint8_t days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (month < 1 || month > 12) return 31;
+  if (month == 2) {
+    bool isLeap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    return isLeap ? 29 : 28;
+  }
+  return days[month - 1];
 }
 
 // =========================================================================
@@ -324,32 +376,32 @@ void handleButtons() {
       adjustPressStartTime = millis();
       DEBUG_PRINTLN("[BUTTON] ADJUST Down / ADJUSTボタンが押されました。");
     } else {
-      if (millis() - adjustPressStartTime >= 3000) { 
-        isEditMode = !isEditMode; 
+      if (millis() - adjustPressStartTime >= 3000) {
+        isEditMode = !isEditMode;
         adjustPressed = false;
-        tft.fillScreen(ST77XX_BLACK); 
+        tft.fillScreen(ST77XX_BLACK);
 
         DEBUG_PRINTF("[MODE CHANGE] Edit Mode: %d / 時刻合わせモード: %d\n", isEditMode, isEditMode);
 
         if (isEditMode) {
           editDateTime = rtc.now();
-          editTarget = 0; 
+          editTarget = 0;
         } else {
-          rtc.adjust(editDateTime); 
-          firstRun = true; 
+          rtc.adjust(editDateTime);
+          firstRun = true;
           lastSwitch = millis();
           DEBUG_PRINTLN("[MODE CHANGE] Saved to RTC / 新しい時刻をRTCに保存しました。");
         }
-        delay(500); 
+        delay(500);
         return;
       }
     }
   } else {
     if (adjustPressed) {
-      if (millis() - adjustPressStartTime < 3000) { 
+      if (millis() - adjustPressStartTime < 3000) {
         DEBUG_PRINTLN("[BUTTON] ADJUST Short Release / ADJUSTボタンの短押しを検知。");
         if (!isEditMode) {
-          displayMode = (displayMode + 1) % 4; 
+          displayMode = (displayMode + 1) % 4;
           DEBUG_PRINTF("[INFO] Display Mode Changed: %d / 表示モード変更: %d\n", displayMode, displayMode);
           if (displayMode == 0 || displayMode == 3) {
             displayBinaryImage("/makima.bin");
@@ -358,9 +410,9 @@ void handleButtons() {
             displayBinaryImage("/chanesouman.bin");
             isMakimaBg = false;
           }
-          currentTextColor = checkHolidayColor(rtc.now()); 
+          currentTextColor = checkHolidayColor(rtc.now());
           firstRun = true;
-          lastSwitch = millis(); 
+          lastSwitch = millis();
         }
       }
       adjustPressed = false;
@@ -368,12 +420,12 @@ void handleButtons() {
   }
 
   if (isEditMode) {
-    if (btnSelect) { 
-      editTarget = (editTarget + 1) % 6; 
+    if (btnSelect) {
+      editTarget = (editTarget + 1) % 6;
       DEBUG_PRINTF("[EDIT] Target: %d (0:Y, 1:M, 2:D, 3:h, 4:m, 5:s) / 編集対象: %d\n", editTarget, editTarget);
-      delay(200); 
+      delay(200);
     }
-    if (btnUp) { 
+    if (btnUp) {
       int y = editDateTime.year();
       int m = editDateTime.month();
       int d = editDateTime.day();
@@ -382,15 +434,24 @@ void handleButtons() {
       int ss = editDateTime.second();
 
       switch (editTarget) {
-        case 0: y++; if (y > 2099) y = 2026; break; 
-        case 1: m = (m % 12) + 1; break;             
-        case 2: d = (d % 31) + 1; break;             
-        case 3: hh = (hh + 1) % 24; break;           
-        case 4: mm = (mm + 1) % 60; break;           
-        case 5: ss = (ss + 1) % 60; break;           
+        case 0: y++; if (y > 2099) y = 2026; break;
+        case 1: m = (m % 12) + 1; break;
+        case 2: {
+          uint8_t maxDay = daysInMonth(y, m);  // 月の実日数に合わせて上限を決定
+          d = (d % maxDay) + 1;
+          break;
+        }
+        case 3: hh = (hh + 1) % 24; break;
+        case 4: mm = (mm + 1) % 60; break;
+        case 5: ss = (ss + 1) % 60; break;
       }
+
+      // 月変更等で日が実在しない値になった場合の補正 (例: 3/31 -> 2月に変更 -> 2/28)
+      uint8_t maxDayForMonth = daysInMonth(y, m);
+      if (d > maxDayForMonth) d = maxDayForMonth;
+
       editDateTime = DateTime(y, m, d, hh, mm, ss);
-      DEBUG_PRINTF("[EDIT] Increment. Buff: %04d/%02d/%02d %02d:%02d:%02d / 数値変更。バッファ: %04d/%02d/%02d %02d:%02d:%02d\n", 
+      DEBUG_PRINTF("[EDIT] Increment. Buff: %04d/%02d/%02d %02d:%02d:%02d / 数値変更。バッファ: %04d/%02d/%02d %02d:%02d:%02d\n",
                    y, m, d, hh, mm, ss, y, m, d, hh, mm, ss);
       delay(200);
     }
@@ -403,20 +464,22 @@ void handleButtons() {
 void handleSerialDebug() {
 #if DEBUG
   if (Serial.available() >= 8) {
-    String input = Serial.readStringUntil('\n'); 
-    input.trim(); 
+    String input = Serial.readStringUntil('\n');
+    input.trim();
 
     if (input.length() == 8) {
-      int y = input.substring(0, 4).toInt(); 
-      int m = input.substring(4, 6).toInt(); 
-      int d = input.substring(6, 8).toInt(); 
+      int y = input.substring(0, 4).toInt();
+      int m = input.substring(4, 6).toInt();
+      int d = input.substring(6, 8).toInt();
 
-      if (y >= 2000 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      if (y >= 2000 && m >= 1 && m <= 12 && d >= 1 && d <= daysInMonth(y, m)) {
         DateTime now = rtc.now();
         rtc.adjust(DateTime(y, m, d, now.hour(), now.minute(), now.second()));
         DEBUG_PRINTF("[SERIAL SYNC] Warp -> %04d/%02d/%02d / ワープ -> %04d/%02d/%02d\n", y, m, d, y, m, d);
-        firstRun = true; 
-        currentTextColor = checkHolidayColor(rtc.now()); 
+        firstRun = true;
+        currentTextColor = checkHolidayColor(rtc.now());
+      } else {
+        DEBUG_PRINTLN("[SERIAL SYNC] Invalid date input, ignored. / 不正な日付入力のため無視しました。");
       }
     }
   }
@@ -435,15 +498,15 @@ void displayBinaryImage(const char* filename) {
     return;
   }
 
-  tft.startWrite(); 
-  tft.setAddrWindow(0, 0, screenWidth, screenHeight); 
+  tft.startWrite();
+  tft.setAddrWindow(0, 0, screenWidth, screenHeight);
 
   for (int y = 0; y < screenHeight; y++) {
     if (f.read((uint8_t*)lineBuffer, screenWidth * 2) != screenWidth * 2) break;
-    tft.writePixels(lineBuffer, screenWidth);      
-    if (y % 40 == 0) watchdog_update();            
+    tft.writePixels(lineBuffer, screenWidth);
+    if (y % 40 == 0) watchdog_update();
   }
-  tft.endWrite(); 
+  tft.endWrite();
   f.close();
 }
 
@@ -451,11 +514,11 @@ void displayBinaryImage(const char* filename) {
 // 背景部分復元テキスト表示
 // =========================================================================
 void drawTextWithBackground(int16_t x, int16_t y, const char* text, const char* bgFile) {
-  const int16_t h = 58;        
-  const int16_t off_y = 46;    
-  int16_t margin = 16;        
-  int16_t textWidth = (strlen(text) * 22) + margin; 
-  
+  const int16_t h = 58;
+  const int16_t off_y = 46;
+  int16_t margin = 16;
+  int16_t textWidth = (strlen(text) * 22) + margin;
+
   int16_t drawX = x - (margin / 2);
   if (drawX < 0) drawX = 0;
   if (drawX + textWidth > screenWidth) textWidth = screenWidth - drawX;
@@ -470,9 +533,9 @@ void drawTextWithBackground(int16_t x, int16_t y, const char* text, const char* 
 
     uint32_t pos = (uint32_t)currentRow * 320 * 2;
     if (f.seek(pos)) {
-      f.read((uint8_t*)lineBuffer, 640); 
-      tft.setAddrWindow(drawX, currentRow, textWidth, 1); 
-      tft.writePixels(&lineBuffer[drawX], textWidth);     
+      f.read((uint8_t*)lineBuffer, 640);
+      tft.setAddrWindow(drawX, currentRow, textWidth, 1);
+      tft.writePixels(&lineBuffer[drawX], textWidth);
     }
   }
   tft.endWrite();
@@ -487,12 +550,12 @@ void drawTextWithBackground(int16_t x, int16_t y, const char* text, const char* 
 // =========================================================================
 void updateClockDisplay(DateTime t) {
   if (displayMode == 2 || displayMode == 3) {
-    lastTemp = -999.0; 
+    lastTemp = -999.0;
     return;
   }
 
   char buf[32];
-  u8g2_gfx.setForegroundColor(currentTextColor); 
+  u8g2_gfx.setForegroundColor(currentTextColor);
 
   if (firstRun || t.day() != last_t.day()) {
     sprintf(buf, "%04d/%02d/%02d", t.year(), t.month(), t.day());
@@ -516,7 +579,7 @@ void updateClockDisplay(DateTime t) {
 
   if (firstRun || t.hour() != last_t.hour()) {
     int h12 = t.hour() % 12;
-    if (h12 == 0) h12 = 12; 
+    if (h12 == 0) h12 = 12;
     sprintf(buf, "%02d", h12);
     drawTextWithBackground(COL_HOUR, ROW_TIME, buf, currentBgFile);
   }
@@ -524,12 +587,17 @@ void updateClockDisplay(DateTime t) {
   if (firstRun || t.minute() != last_t.minute()) {
     sprintf(buf, "%02d", t.minute());
     drawTextWithBackground(COL_MIN, ROW_TIME, buf, currentBgFile);
-    
+
     // 1分ごとにPCシリアルモニタへ状態を一括送信
-    DEBUG_PRINTF("[STATUS REPORT] %02d:%02d | Temp: %.1fC | Pres: %.1fhPa / [状態報告] %02d:%02d | 温度: %.1fC | 気圧: %.1fhPa\n", 
-                 t.hour(), t.minute(), lastTemp, lastPres, t.hour(), t.minute(), lastTemp, lastPres);
+    if (bmpOk) {
+      DEBUG_PRINTF("[STATUS REPORT] %02d:%02d | Temp: %.1fC | Pres: %.1fhPa / [状態報告] %02d:%02d | 温度: %.1fC | 気圧: %.1fhPa\n",
+                   t.hour(), t.minute(), lastTemp, lastPres, t.hour(), t.minute(), lastTemp, lastPres);
+    } else {
+      DEBUG_PRINTF("[STATUS REPORT] %02d:%02d | Env sensor N/A / [状態報告] %02d:%02d | 環境センサー未接続\n",
+                   t.hour(), t.minute(), t.hour(), t.minute());
+    }
   }
-  
+
   if (firstRun || t.second() != last_t.second()) {
     sprintf(buf, "%02d", t.second());
     drawTextWithBackground(COL_SEC, ROW_TIME, buf, currentBgFile);
@@ -548,16 +616,19 @@ void updateClockDisplay(DateTime t) {
     lastState = currentState;
   }
 
+  // BMP280が無い場合は読み取り自体をスキップ（NaN/ゴミ値の表示を防止）
+  if (!bmpOk) return;
+
   float currentTemp = bmp.readTemperature();
-  float currentPres = bmp.readPressure() / 100.0F; 
+  float currentPres = bmp.readPressure() / 100.0F;
 
   if (abs(currentTemp - lastTemp) >= 0.1 || abs(currentPres - lastPres) >= 0.1) {
     char envBuf[40];
     snprintf(envBuf, sizeof(envBuf), "T:%2.1fC P:%4.1fhPa ", currentTemp, currentPres);
-    u8g2_gfx.setForegroundColor(COLOR_NEON_BLUE); 
-    drawTextWithBackground(15, 140, envBuf, currentBgFile); 
-    
-    DEBUG_PRINTF("[SENSOR] Temp: %.2fC, Pres: %.2fhPa / センサー変動: 温度: %.2fC, 気圧: %.2fhPa\n", 
+    u8g2_gfx.setForegroundColor(COLOR_NEON_BLUE);
+    drawTextWithBackground(15, 140, envBuf, currentBgFile);
+
+    DEBUG_PRINTF("[SENSOR] Temp: %.2fC, Pres: %.2fhPa / センサー変動: 温度: %.2fC, 気圧: %.2fhPa\n",
                  currentTemp, currentPres, currentTemp, currentPres);
     lastTemp = currentTemp;
     lastPres = currentPres;
@@ -569,12 +640,12 @@ void updateClockDisplay(DateTime t) {
 // =========================================================================
 void drawEditScreen() {
   static unsigned long lastUpdate = 0;
-  if (millis() - lastUpdate < 150) return; 
+  if (millis() - lastUpdate < 150) return;
   lastUpdate = millis();
 
-  tft.fillScreen(ST77XX_BLACK); 
+  tft.fillScreen(ST77XX_BLACK);
   u8g2_gfx.setForegroundColor(COLOR_NEON_BLUE);
-  
+
   u8g2_gfx.setCursor(40, 40);
   u8g2_gfx.print("TIME SETTING MODE");
 
